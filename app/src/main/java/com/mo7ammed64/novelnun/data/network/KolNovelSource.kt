@@ -1,210 +1,160 @@
 package com.mo7ammed64.novelnun.data.network
 
 import com.mo7ammed64.novelnun.data.model.Chapter
+import com.mo7ammed64.novelnun.data.model.ChapterNumbers
 import com.mo7ammed64.novelnun.data.model.Novel
 import com.mo7ammed64.novelnun.data.model.NovelDetails
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Scrapes kolnovel.com (a self-hosted "lightnovel" WordPress theme site, the same one the
- * upstream Keiyoushi "KolNovel" extension targets). The theme is not publicly documented, so the
- * CSS selectors below are best-effort based on the page structure and may need small adjustments
- * if the site changes its markup - this class is kept isolated from the rest of the app for
- * exactly that reason. All screens degrade to an empty state rather than crashing on a selector
- * miss.
+ * Talks to kolnovel.com's own JSON API (`wp-json/app/v2/...`) - the same one its official Android
+ * app (com.benabdellah.KolNovelApp) uses - instead of scraping HTML off the site's theme. Captured
+ * from a HAR of that app's traffic. This is far more reliable than scraping: chapter numbers,
+ * order and titles come back as clean structured fields, and chapter content is already sanitized
+ * (no ads/scripts to strip - the old scraper's spam-removal logic is gone entirely).
+ *
+ * Two things weren't visible in that capture, so rather than guess at unverified query params:
+ * - "Popular": no `sort=rating`/`sort=popular` value was exercised, so this fetches a larger
+ *   latest-sorted batch and ranks it client-side by the `score` field the API already returns.
+ * - Search: no dedicated search endpoint was exercised, so this filters a fetched batch by title
+ *   client-side (digit-normalized, so "142" matches "١٤٢") instead of trusting a guessed
+ *   `search=`/`s=` param that the server might silently ignore.
  */
 class KolNovelSource {
 
-    private val baseUrl = "https://kolnovel.com"
+    private val base = "https://kolnovel.com/wp-json/app/v2"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    private val userAgent =
-        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
-
-    private suspend fun fetch(url: String): Document = withContext(Dispatchers.IO) {
+    private suspend fun getJson(url: String): JSONObject = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", userAgent)
-            .header("Referer", baseUrl)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) NovelNun/1.0")
             .build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            Jsoup.parse(body, baseUrl)
+            JSONObject(body)
         }
     }
 
-    /** "أخر التحديثات" - latest updated novels, from the series listing page. */
+    private fun novelFromJson(item: JSONObject): Novel {
+        val id = item.getInt("id")
+        val genres = item.optJSONArray("genres")?.let { arr ->
+            (0 until arr.length()).map { arr.getJSONObject(it).optString("name") }
+        }.orEmpty()
+        val score = if (item.has("score") && !item.isNull("score")) item.optDouble("score") else null
+        return Novel(
+            slug = item.optString("slug", id.toString()),
+            title = item.optString("title"),
+            coverUrl = item.optString("cover_url").ifBlank { null },
+            url = "$base/titles/$id",
+            rating = score?.let { "%.1f".format(it) },
+            latestChapterLabel = item.optString("status").ifBlank { null },
+            genres = genres,
+        )
+    }
+
+    private fun idFromUrl(url: String): Int? = url.substringAfterLast("/").toIntOrNull()
+
+    /** "أخر التحديثات" - latest updated novels. */
     suspend fun fetchLatest(page: Int = 1): List<Novel> {
-        val url = "$baseUrl/series/?status=&type=&order=update&page=$page"
-        return parseSeriesCards(fetch(url))
+        val json = getJson("$base/discover?limit=20&sort=latest&genre_match=all")
+        val data = json.optJSONArray("data") ?: JSONArray()
+        return (0 until data.length()).map { novelFromJson(data.getJSONObject(it)) }
     }
 
-    /** Popular / trending novels, sourced from the highest-rated ordering. */
+    /** Popular / trending novels, ranked client-side by the score the API returns per item. */
     suspend fun fetchPopular(page: Int = 1): List<Novel> {
-        val url = "$baseUrl/series/?status=&type=&order=rating&page=$page"
-        return parseSeriesCards(fetch(url))
+        val json = getJson("$base/discover?limit=40&sort=latest&genre_match=all")
+        val data = json.optJSONArray("data") ?: JSONArray()
+        return (0 until data.length())
+            .map { data.getJSONObject(it) }
+            .sortedByDescending { if (it.has("score") && !it.isNull("score")) it.optDouble("score") else 0.0 }
+            .map { novelFromJson(it) }
     }
 
-    /** "آخر الاضافات" - most recently added novels (used for the top explore row). */
-    suspend fun fetchRecentlyAdded(): List<Novel> {
-        val url = "$baseUrl/series/?status=&type=&order=latest"
-        return parseSeriesCards(fetch(url))
-    }
+    /** "آخر الاضافات" - kept as an alias of [fetchLatest]; the API doesn't distinguish the two. */
+    suspend fun fetchRecentlyAdded(): List<Novel> = fetchLatest()
 
     suspend fun search(query: String): List<Novel> {
-        val url = "$baseUrl/?s=${java.net.URLEncoder.encode(query, "UTF-8")}&post_type=wp-manga"
-        return parseSeriesCards(fetch(url))
-    }
-
-    private fun parseSeriesCards(doc: Document): List<Novel> {
-        val candidates = doc.select(
-            "div.listupd .bs, div.listupd .bsx, .page-item-detail, article, .maindetail, .box",
-        )
-        val results = mutableListOf<Novel>()
-        for (el in candidates) {
-            val link = el.selectFirst("a[href*=/series/]") ?: continue
-            val href = link.absUrl("href").ifBlank { link.attr("href") }
-            val slug = slugFromUrl(href) ?: continue
-            val title = el.selectFirst("h2, h3, .tt, .title")?.text()?.ifBlank { null }
-                ?: link.attr("title").ifBlank { null }
-                ?: continue
-            val cover = el.selectFirst("img")?.let { img ->
-                img.absUrl("src").ifBlank { img.absUrl("data-src") }
-            }
-            val rating = el.selectFirst(".rating, .numscore, .score")?.text()?.ifBlank { null }
-            val latestChapter = el.selectFirst(".epxs, .chapter, .lastest, a[href*=chapter]")?.text()?.ifBlank { null }
-            if (results.none { it.slug == slug }) {
-                results += Novel(
-                    slug = slug,
-                    title = title.trim(),
-                    coverUrl = cover,
-                    url = href,
-                    rating = rating,
-                    latestChapterLabel = latestChapter,
-                )
-            }
-        }
-        return results
-    }
-
-    private fun slugFromUrl(url: String): String? {
-        val trimmed = url.substringAfter("/series/", "").trim('/')
-        return trimmed.ifBlank { null }
+        val json = getJson("$base/discover?limit=100&sort=latest&genre_match=all")
+        val data = json.optJSONArray("data") ?: JSONArray()
+        return (0 until data.length())
+            .map { novelFromJson(data.getJSONObject(it)) }
+            .filter { it.title.contains(query, ignoreCase = true) }
     }
 
     suspend fun fetchDetails(seriesUrl: String): NovelDetails? {
-        val doc = fetch(seriesUrl)
-        val title = doc.selectFirst("h1, .entry-title, .titlepost")?.text() ?: return null
-        val cover = doc.selectFirst(".thumb img, .summary_image img, article img")?.let { img ->
-            img.absUrl("src").ifBlank { img.absUrl("data-src") }
-        }
-        val synopsis = doc.selectFirst(".entry-content, .summary__content, .description-summary")
-            ?.text().orEmpty()
-        val status = doc.selectFirst(".status, .imptdt:contains(الحالة) i")?.text()
-        val author = doc.selectFirst(".author-content a, .imptdt:contains(المؤلف) i")?.text()
-        val slug = slugFromUrl(seriesUrl) ?: seriesUrl
+        val id = idFromUrl(seriesUrl) ?: return null
+        val titleJson = getJson("$base/titles/$id").optJSONObject("data") ?: return null
+        val novel = novelFromJson(titleJson)
 
-        val chapters = doc.select("li.wp-manga-chapter a, .eplister a, .chapter-list a")
-            .asSequence()
-            .filterNot { a ->
-                // Skip anything sitting inside a pager/pagination control - some themes leave a
-                // hidden "compact" anchor (e.g. just "الفصل 2") per row for responsive layouts,
-                // and Jsoup sees it even though CSS hides it. Both look like noise: short text,
-                // no real descriptive title or date attached to it.
-                a.parents().any { p ->
-                    p.hasClass("pagination") || p.hasClass("wp-pagenavi") || p.hasClass("page-numbers") ||
-                        p.tagName() == "nav"
+        // Chapters come back chronological (oldest first) already - no ordering heuristics needed.
+        val chapters = mutableListOf<Chapter>()
+        var cursor: String? = null
+        var page = 0
+        do {
+            val url = buildString {
+                append("$base/titles/$id/reading-list?limit=300")
+                if (cursor != null) append("&cursor=").append(cursor)
+            }
+            val listJson = getJson(url)
+            val data = listJson.optJSONArray("data") ?: JSONArray()
+            for (i in 0 until data.length()) {
+                val entry = data.getJSONObject(i)
+                val chapterId = entry.getInt("id")
+                val number = entry.optString("number").ifBlank { null }?.let { ChapterNumbers.parse(it) }
+                val rawTitle = entry.optString("title").ifBlank { null }
+                val displayTitle = when {
+                    number != null && rawTitle != null -> "الفصل $number: $rawTitle"
+                    number != null -> "الفصل $number"
+                    else -> rawTitle ?: "فصل"
                 }
+                chapters += Chapter(
+                    title = displayTitle,
+                    url = "$base/reader/$chapterId",
+                    index = chapters.size,
+                    number = number,
+                )
             }
-            .mapNotNull { a ->
-                val href = a.absUrl("href").ifBlank { a.attr("href") }
-                val text = a.text().trim()
-                if (href.isBlank() || text.isBlank()) null else text to href
-            }
-            // A genuine chapter row has a full descriptive title (+ often a date); bare "الفصل N"
-            // duplicates are short noise from the same markup quirk above.
-            .filter { (text, _) -> text.length >= 12 }
-            .toList()
-            .let { entries ->
-                // Dedupe by chapter number, keeping whichever duplicate has the longest (most
-                // complete) title.
-                val byNumber = linkedMapOf<Int, Pair<String, String>>()
-                val noNumber = mutableListOf<Pair<String, String>>()
-                for (entry in entries) {
-                    val num = Regex("""\d+""").find(entry.first)?.value?.toIntOrNull()
-                    if (num == null) {
-                        noNumber += entry
-                        continue
-                    }
-                    val existing = byNumber[num]
-                    if (existing == null || entry.first.length > existing.first.length) {
-                        byNumber[num] = entry
-                    }
-                }
-                byNumber.values.toList() + noNumber
-            }
-            .mapIndexed { index, (title, href) -> Chapter(title = title, url = href, index = index) }
+            val meta = listJson.optJSONObject("meta")
+            cursor = meta?.optString("next_cursor")?.takeIf { it.isNotBlank() && it != "null" }
+            page++
+        } while (cursor != null && page < 15)
 
-        val novel = Novel(
-            slug = slug,
-            title = title.trim(),
-            coverUrl = cover,
-            url = seriesUrl,
-            genres = doc.select(".genres-content a, .mgen a").map { it.text() },
-        )
+        val description = titleJson.optString("description")
+            .replace(Regex("<[^>]*>"), " ")
+            .replace("&nbsp;", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
         return NovelDetails(
             novel = novel,
-            synopsis = synopsis.trim(),
-            status = status,
-            author = author,
+            synopsis = description,
+            status = titleJson.optString("status").ifBlank { null },
+            author = titleJson.optString("author").ifBlank { null },
             chapters = chapters,
         )
     }
 
-    /**
-     * Fetches and cleans chapter text. Mirrors the upstream KolNovel extension's spam-removal
-     * logic: the site hides ad paragraphs behind dynamically generated CSS classes declared in an
-     * inline <style> block, plus assorted navigation/ad/social clutter.
-     */
     suspend fun fetchChapterContent(chapterUrl: String): String = withContext(Dispatchers.IO) {
-        val doc = fetch(chapterUrl)
-
-        doc.select(".epcontent .code-block").remove()
-
-        val styleText = doc.select("article > style").text()
-        Regex("""\.\w+(?=\s*[,{])""").findAll(styleText).forEach { match ->
-            doc.select("p${match.value}").remove()
+        val id = idFromUrl(chapterUrl) ?: return@withContext ""
+        val json = getJson("$base/reader/$id")
+        val data = json.optJSONObject("data") ?: return@withContext ""
+        val access = data.optJSONObject("access")
+        if (access != null && !access.optBoolean("has_access", true)) {
+            return@withContext "<p>هذا الفصل مقفل ويتطلب صلاحية وصول غير متوفرة في هذا التطبيق.</p>"
         }
-
-        doc.select(
-            ".unlock-buttons, .ads, script, style, .sharedaddy, .su-spoiler-title, noscript, ins, " +
-                ".adsbygoogle, iframe, [id*=google], [class*=google], .chapter-navigation, " +
-                ".prev-next, .navigation, .post-nav, .related-novels, .recommendations, .sidebar, " +
-                ".widget, .author-box, .comments, #comments, .footer, .breadcrumb, .breadcrumbs, " +
-                ".share-buttons, .social-share, .rating, .chapter-actions, .download-chapter",
-        ).remove()
-
-        val content: Element = doc.select(".epcontent.entry-content, .text-right, .reading-content")
-            .maxByOrNull { el -> el.select("p").sumOf { it.text().length } } ?: return@withContext ""
-
-        content.select("p").forEach { p ->
-            val text = p.text()
-            if (text.isBlank() || text.length < 10) {
-                p.remove()
-            }
-        }
-
-        content.html()
+        val entry = data.optJSONObject("entry") ?: return@withContext ""
+        entry.optString("content")
     }
 }

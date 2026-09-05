@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.font.FontFamily
 
 private val NovelNunDarkColors = darkColorScheme(
     primary = Primary,
@@ -37,10 +38,13 @@ private val NovelNunDarkColors = darkColorScheme(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun NovelNunTheme(content: @Composable () -> Unit) {
+fun NovelNunTheme(
+    fontFamily: FontFamily = FontFamily.SansSerif,
+    content: @Composable () -> Unit,
+) {
     MaterialExpressiveTheme(
         colorScheme = NovelNunDarkColors,
-        typography = NovelNunTypography,
+        typography = NovelNunTypography(fontFamily),
         motionScheme = MotionScheme.standard(),
         content = content,
     )
