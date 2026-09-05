@@ -16,7 +16,7 @@ class DestInitializationTest {
         // Fresh class loaders reproduce a cold start for each access order. Without isolation,
         // another test may initialize the companion first and hide the circular-init bug.
         listOf("Home", "Search", "Saved", "Settings", "Details", "Reader").forEach { first ->
-            URLClassLoader(locations, ClassLoader.getPlatformClassLoader()).use { loader ->
+            URLClassLoader(locations, null).use { loader ->
                 val firstClass = Class.forName("$baseName\$$first", true, loader)
                 assertNotNull(firstClass.getField("INSTANCE").get(null))
                 val base = Class.forName(baseName, true, loader)
