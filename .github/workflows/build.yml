@@ -21,7 +21,28 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build unsigned release APK
-        run: gradle assembleRelease --no-daemon
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+
+      - name: Publish build failure details
+        if: failure()
+        shell: bash
+        run: |
+          echo "## Gradle build output" >> "$GITHUB_STEP_SUMMARY"
+          cat build.log >> "$GITHUB_STEP_SUMMARY"
+          diagnostics=$(grep -E '(^e:|error:|What went wrong|Execution failed|Caused by:|Unresolved reference|Type mismatch|Cannot access|Expecting)' build.log | tail -40 || true)
+          if [ -z "$diagnostics" ]; then diagnostics=$(tail -40 build.log); fi
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=Gradle build::$line"
+          done <<< "$diagnostics"
+
+      - name: Upload build log when the build fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NovelNun-build-log
+          path: build.log
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
