@@ -32,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -56,16 +55,15 @@ fun SettingsScreen(settings: AppSettings) {
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "الإعدادات",
+                text = "Settings",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Right,
             )
 
             ListItem(
                 modifier = Modifier.clickable { showFontPicker = true },
-                headlineContent = { Text("خط التطبيق") },
+                headlineContent = { Text("App font") },
                 supportingContent = { Text(settings.currentFont.displayName) },
                 trailingContent = { Text("Aa", style = MaterialTheme.typography.titleLarge) },
             )
@@ -75,11 +73,11 @@ fun SettingsScreen(settings: AppSettings) {
                 modifier = Modifier.clickable {
                     settings.updateReverseChapterOrder(!settings.reverseChapterOrder)
                 },
-                headlineContent = { Text("ترتيب الفصول عكسياً") },
+                headlineContent = { Text("Reverse chapter order") },
                 supportingContent = {
                     Text(
-                        if (settings.reverseChapterOrder) "من الأحدث إلى الأقدم"
-                        else "من الأقدم إلى الأحدث",
+                        if (settings.reverseChapterOrder) "Newest first"
+                        else "Oldest first",
                     )
                 },
                 trailingContent = {
@@ -92,19 +90,27 @@ fun SettingsScreen(settings: AppSettings) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             ListItem(
-                headlineContent = { Text("المظهر") },
-                supportingContent = { Text("داكن دائماً — شامل بلا شريط حالة") },
+                headlineContent = { Text("Reader") },
+                supportingContent = {
+                    Text("Text size, line spacing, alignment, font and background can be changed from the tune icon inside the reader")
+                },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             ListItem(
-                headlineContent = { Text("المصدر") },
+                headlineContent = { Text("Theme") },
+                supportingContent = { Text("Always dark — immersive, no status bar") },
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            ListItem(
+                headlineContent = { Text("Source") },
                 supportingContent = { Text("kolnovel.com") },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             ListItem(
-                headlineContent = { Text("الإصدار") },
+                headlineContent = { Text("Version") },
                 supportingContent = { Text("1.1.0") },
             )
         }
@@ -113,7 +119,7 @@ fun SettingsScreen(settings: AppSettings) {
     if (showFontPicker) {
         AlertDialog(
             onDismissRequest = { showFontPicker = false },
-            title = { Text("اختيار خط التطبيق") },
+            title = { Text("Choose app font") },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     importError?.let { error ->
@@ -158,7 +164,7 @@ fun SettingsScreen(settings: AppSettings) {
                                 }) {
                                     Icon(
                                         Icons.Default.Delete,
-                                        contentDescription = "حذف الخط",
+                                        contentDescription = "Delete font",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
@@ -194,7 +200,7 @@ fun SettingsScreen(settings: AppSettings) {
                             modifier = Modifier.padding(start = 12.dp),
                         )
                         Text(
-                            text = "إضافة خط من جهازك (ttf / otf)",
+                            text = "Add a font from your device (ttf / otf)",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(start = 14.dp),
@@ -203,7 +209,7 @@ fun SettingsScreen(settings: AppSettings) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showFontPicker = false }) { Text("إغلاق") }
+                TextButton(onClick = { showFontPicker = false }) { Text("Close") }
             },
         )
     }
