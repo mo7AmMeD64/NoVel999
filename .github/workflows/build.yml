@@ -48,6 +48,10 @@ jobs:
           name: NovelNun-build-log
           path: build.log
 
+      - name: Publish unit test results
+        if: always()
+        run: python3 .github/scripts/report-tests.py
+
       - name: Upload unit test reports
         if: always()
         uses: actions/upload-artifact@v4
