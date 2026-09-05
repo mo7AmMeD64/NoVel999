@@ -63,7 +63,7 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
      */
     fun filteredChapters(reverseOrder: Boolean = false): List<Chapter> {
         val chapters = orderedChapters(reverseOrder)
-        val chronological = orderedChapters(reverse = false)
+        val chronological = orderedChapters(reverseOrder = false)
         val query = _state.value.query.trim()
         if (query.isBlank()) return chapters
 
@@ -88,7 +88,7 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
     /** Finds the chapter requested in the chapter-number bar. */
     fun chapterForNumber(reverseOrder: Boolean = false): Chapter? {
         val requestedNumber = chapterNumber(_state.value.query) ?: return null
-        val chronological = orderedChapters(reverse = false)
+        val chronological = orderedChapters(reverseOrder = false)
 
         // Prefer the actual number in the title; the list position is only a fallback for sources
         // that do not include a number in their chapter label. The fallback always indexes the
