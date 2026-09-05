@@ -45,17 +45,96 @@ class AppSettings(context: Context) {
     )
         private set
 
+    // Reader preferences -----------------------------------------------------
+
+    var readerFontId: String by mutableStateOf(
+        preferences.getString(KEY_READER_FONT, READER_FONT_APP) ?: READER_FONT_APP,
+    )
+        private set
+
+    var readerFontSize: Float by mutableStateOf(
+        preferences.getFloat(KEY_READER_FONT_SIZE, 18f),
+    )
+        private set
+
+    var readerLineSpacing: Float by mutableStateOf(
+        preferences.getFloat(KEY_READER_LINE_SPACING, 1.7f),
+    )
+        private set
+
+    var readerTextAlign: String by mutableStateOf(
+        preferences.getString(KEY_READER_ALIGN, ALIGN_RIGHT) ?: ALIGN_RIGHT,
+    )
+        private set
+
+    var readerBackground: String by mutableStateOf(
+        preferences.getString(KEY_READER_BACKGROUND, DEFAULT_READER_BACKGROUND) ?: DEFAULT_READER_BACKGROUND,
+    )
+        private set
+
+    /** The reader either follows the app font or uses its own dedicated pick. */
+    val readerFontFamily: FontFamily
+        get() = if (readerFontId == READER_FONT_APP) {
+            fontFamily
+        } else {
+            availableFonts.firstOrNull { it.id == readerFontId }?.fontFamily ?: fontFamily
+        }
+
     fun updateFont(value: AppFontOption) {
         selectedFontId = value.id
         preferences.edit().putString(KEY_FONT, value.id).apply()
     }
 
+    fun updateReaderFont(id: String) {
+        readerFontId = id
+        preferences.edit().putString(KEY_READER_FONT, id).apply()
+    }
+
+    fun updateReaderFontSize(value: Float) {
+        readerFontSize = value
+        preferences.edit().putFloat(KEY_READER_FONT_SIZE, value).apply()
+    }
+
+    fun updateReaderLineSpacing(value: Float) {
+        readerLineSpacing = value
+        preferences.edit().putFloat(KEY_READER_LINE_SPACING, value).apply()
+    }
+
+    fun updateReaderTextAlign(value: String) {
+        readerTextAlign = value
+        preferences.edit().putString(KEY_READER_ALIGN, value).apply()
+    }
+
+    fun updateReaderBackground(value: String) {
+        readerBackground = value
+        preferences.edit().putString(KEY_READER_BACKGROUND, value).apply()
+    }
+
     /**
      * Copies a font picked with the system file picker into the app's private fonts directory,
-     * validates that Android can actually load it, and selects it. Returns null on success or a
-     * human-readable error message.
+     * validates that Android can actually load it, and selects it as the app-wide font.
+     * Returns null on success or a human-readable error message.
      */
-    fun importFont(context: Context, uri: Uri): String? {
+    fun importFont(context: Context, uri: Uri): String? =
+        importFontFile(context, uri).fold(
+            onSuccess = { imported ->
+                updateFont(imported)
+                null
+            },
+            onFailure = { it.message ?: "Couldn't import the font" },
+        )
+
+    /** Imports a font file and selects it for the reader only (the app font is unchanged). */
+    fun importReaderFont(context: Context, uri: Uri): String? =
+        importFontFile(context, uri).fold(
+            onSuccess = { imported ->
+                updateReaderFont(imported.id)
+                null
+            },
+            onFailure = { it.message ?: "Couldn't import the font" },
+        )
+
+    private fun importFontFile(context: Context, uri: Uri): Result<AppFontOption.Imported> {
         val resolver = context.contentResolver
         val displayName = queryDisplayName(context, uri)?.substringAfterLast('/')
             ?: uri.lastPathSegment?.substringAfterLast('/')
@@ -73,20 +152,19 @@ class AppSettings(context: Context) {
         return try {
             resolver.openInputStream(uri)?.use { input ->
                 target.outputStream().use { output -> input.copyTo(output) }
-            } ?: return "تعذر قراءة الملف"
+            } ?: return Result.failure(IllegalStateException("Couldn't read the file"))
 
             // Reject files Android can't load as fonts (corrupt download, wrong file type...).
             if (Typeface.createFromFile(target) == null) {
                 target.delete()
-                return "الملف ليس ملف خط صالح"
+                return Result.failure(IllegalStateException("Not a valid font file"))
             }
 
             importedFonts = listImportedFonts()
-            updateFont(importedFonts.last { it.file == target })
-            null
+            Result.success(importedFonts.last { it.file == target })
         } catch (e: Exception) {
             target.delete()
-            "تعذر استيراد الخط: ${e.message ?: e.javaClass.simpleName}"
+            Result.failure(IllegalStateException("Couldn't import the font: ${e.message ?: e.javaClass.simpleName}"))
         }
     }
 
@@ -96,6 +174,9 @@ class AppSettings(context: Context) {
         if (selectedFontId == option.id) {
             selectedFontId = DEFAULT_FONT_ID
             preferences.edit().putString(KEY_FONT, DEFAULT_FONT_ID).apply()
+        }
+        if (readerFontId == option.id) {
+            updateReaderFont(READER_FONT_APP)
         }
     }
 
@@ -138,11 +219,25 @@ class AppSettings(context: Context) {
             }
     }.getOrNull()
 
-    private companion object {
-        const val PREFERENCES_NAME = "novelnun_preferences"
-        const val KEY_FONT = "app_font"
-        const val KEY_REVERSE_CHAPTERS = "reverse_chapter_order"
-        const val DEFAULT_FONT_ID = "cairo"
-        const val IMPORTED_ID_PREFIX = "imported:"
+    companion object {
+        private const val PREFERENCES_NAME = "novelnun_preferences"
+        private const val KEY_FONT = "app_font"
+        private const val KEY_REVERSE_CHAPTERS = "reverse_chapter_order"
+        private const val KEY_READER_FONT = "reader_font"
+        private const val KEY_READER_FONT_SIZE = "reader_font_size"
+        private const val KEY_READER_LINE_SPACING = "reader_line_spacing"
+        private const val KEY_READER_ALIGN = "reader_text_align"
+        private const val KEY_READER_BACKGROUND = "reader_background"
+        private const val DEFAULT_FONT_ID = "cairo"
+        private const val IMPORTED_ID_PREFIX = "imported:"
+        private const val DEFAULT_READER_BACKGROUND = "default"
+
+        /** Sentinel meaning “the reader follows the app font”. */
+        const val READER_FONT_APP = "app"
+
+        const val ALIGN_RIGHT = "right"
+        const val ALIGN_LEFT = "left"
+        const val ALIGN_CENTER = "center"
+        const val ALIGN_JUSTIFY = "justify"
     }
 }

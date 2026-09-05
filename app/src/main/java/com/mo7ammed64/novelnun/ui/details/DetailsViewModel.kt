@@ -34,7 +34,20 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
     }
 
-    fun load(seriesUrl: String) {
+    private var loadedUrl: String? = null
+
+    /**
+     * Loads the novel details once per URL. Coming back from the reader re-enters the screen with
+     * the same ViewModel, so we keep the already-loaded data (and scroll state) instead of
+     * re-fetching and flashing the loading spinner. Pass [force] to explicitly refresh.
+     */
+    fun load(seriesUrl: String, force: Boolean = false) {
+        if (!force && loadedUrl == seriesUrl && _state.value.details != null) {
+            // Refresh the "continue" chapter — the user may have just read a new chapter.
+            refreshContinueChapter()
+            return
+        }
+        loadedUrl = seriesUrl
         viewModelScope.launch {
             _state.value = _state.value.copy(loading = true, error = null)
             repo.getDetails(seriesUrl)
@@ -53,8 +66,23 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun refreshContinueChapter() {
+        val details = _state.value.details ?: return
+        viewModelScope.launch {
+            val history = repo.findHistory(details.novel.slug)
+            val continueChapter = details.chapters.firstOrNull { it.url == history?.lastChapterUrl }
+                ?: details.chapters.firstOrNull()
+            _state.value = _state.value.copy(continueChapter = continueChapter)
+        }
+    }
+
     fun onQueryChange(query: String) {
         _state.value = _state.value.copy(query = query, chapterInputError = null)
+    }
+
+    /** Clears the chapter search so the full chapter list is visible again. */
+    fun clearQuery() {
+        _state.value = _state.value.copy(query = "", chapterInputError = null)
     }
 
     /**

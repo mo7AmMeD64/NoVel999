@@ -15,10 +15,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
@@ -75,6 +77,9 @@ fun DetailsScreen(
 
                 fun openRequestedChapter() {
                     viewModel.chapterForNumber(settings.reverseChapterOrder)?.let { chapter ->
+                        // Clear the search before leaving so the full chapter list is waiting
+                        // when the user comes back from the reader.
+                        viewModel.clearQuery()
                         onOpenChapter(details.novel.url, chapter.url)
                     } ?: viewModel.markChapterNotFound()
                 }
@@ -160,6 +165,13 @@ fun DetailsScreen(
                                 onValueChange = viewModel::onQueryChange,
                                 label = { Text("رقم الفصل") },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                trailingIcon = {
+                                    if (state.query.isNotBlank()) {
+                                        IconButton(onClick = viewModel::clearQuery) {
+                                            Icon(Icons.Default.Close, contentDescription = "مسح البحث")
+                                        }
+                                    }
+                                },
                                 isError = state.chapterInputError != null,
                                 supportingText = {
                                     state.chapterInputError?.let { Text(it) }
@@ -183,24 +195,49 @@ fun DetailsScreen(
                     }
 
                     item {
-                        Text(
-                            text = "الفصول",
-                            style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "الفصول",
+                                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (state.query.isNotBlank()) {
+                                AssistChip(
+                                    onClick = viewModel::clearQuery,
+                                    label = { Text("عرض كل الفصول") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                )
+                            }
+                        }
                     }
 
                     val chapters = viewModel.filteredChapters(settings.reverseChapterOrder)
                     if (chapters.isEmpty()) {
                         item {
-                            Box(
+                            Column(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                                contentAlignment = Alignment.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Text(
                                     text = if (state.query.isBlank()) "لا توجد فصول" else "لا توجد فصول مطابقة",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                if (state.query.isNotBlank()) {
+                                    Button(
+                                        onClick = viewModel::clearQuery,
+                                        modifier = Modifier.padding(top = 12.dp),
+                                    ) { Text("عرض كل الفصول") }
+                                }
                             }
                         }
                     } else {
