@@ -17,6 +17,8 @@ sealed class Dest(val route: String) {
     }
 
     companion object {
-        val railDestinations = listOf(Home, Search, Saved, Settings)
+        // A destination object can be accessed before Dest's companion. Constructing this list
+        // eagerly during superclass initialization can then capture a null object INSTANCE.
+        val railDestinations: List<Dest> by lazy { listOf(Home, Search, Saved, Settings) }
     }
 }
