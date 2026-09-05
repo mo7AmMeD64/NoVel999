@@ -1,7 +1,7 @@
 # NovelNun
 
 Native Android novel-reading app for kolnovel.com (ملوك الروايات), built with Jetpack Compose
-and the Material 3 Expressive design language (Mono dark scheme, Roboto Serif, shape-morphing
+and the Material 3 Expressive design language (Mono dark scheme, configurable system font, shape-morphing
 loading indicators, expressive FAB menu, connected button groups).
 
 ## Screens
@@ -9,9 +9,9 @@ loading indicators, expressive FAB menu, connected button groups).
   menu (History / Open files).
 - **Search** — full-text search against the site.
 - **Saved** — your favorited novels (persisted locally with Room).
-- **Settings** — basic app info.
+- **Settings** — choose the app-wide font and reverse the chapter order, alongside basic app info.
 - **Details** — cover, synopsis, favorite toggle, Continue (resumes your last-read chapter),
-  and the chapter list with a search field.
+  and the chapter list with a chapter-number jump field.
 - **Reader** — chapter text, with reading progress recorded automatically.
 - **History** — your reading history, openable per-entry, clearable.
 - **Open files** — chapters you've explicitly downloaded for offline reading.

@@ -18,10 +18,14 @@ import com.mo7ammed64.novelnun.ui.home.HomeScreen
 import com.mo7ammed64.novelnun.ui.reader.ReaderScreen
 import com.mo7ammed64.novelnun.ui.saved.SavedScreen
 import com.mo7ammed64.novelnun.ui.search.SearchScreen
+import com.mo7ammed64.novelnun.ui.settings.AppSettings
 import com.mo7ammed64.novelnun.ui.settings.SettingsScreen
 
 @Composable
-fun NovelNunApp(navController: NavHostController = rememberNavController()) {
+fun NovelNunApp(
+    settings: AppSettings,
+    navController: NavHostController = rememberNavController(),
+) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
@@ -63,7 +67,7 @@ fun NovelNunApp(navController: NavHostController = rememberNavController()) {
                 composable(Dest.Saved.route) {
                     SavedScreen(onOpenNovel = { url -> navController.navigate(Dest.Details.build(url)) })
                 }
-                composable(Dest.Settings.route) { SettingsScreen() }
+                composable(Dest.Settings.route) { SettingsScreen(settings = settings) }
                 composable(Dest.History.route) {
                     HistoryScreen(
                         onBack = { navController.popBackStack() },
@@ -82,6 +86,7 @@ fun NovelNunApp(navController: NavHostController = rememberNavController()) {
                     val url = java.net.URLDecoder.decode(entry.arguments?.getString("url").orEmpty(), "UTF-8")
                     DetailsScreen(
                         seriesUrl = url,
+                        settings = settings,
                         onBack = { navController.popBackStack() },
                         onOpenChapter = { novelUrl, chapterUrl ->
                             navController.navigate(Dest.Reader.build(novelUrl, chapterUrl))
