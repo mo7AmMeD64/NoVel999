@@ -5,14 +5,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import com.mo7ammed64.novelnun.ui.settings.AppFont
 
-// The initial font remains the comfortable serif used by the reader. The selected AppFont is
-// supplied to NovelNunTypography at the app root so every screen, including navigation labels,
-// uses the same family.
-val RobotoSerif: FontFamily = AppFont.SERIF.fontFamily
-
-fun NovelNunTypography(fontFamily: FontFamily = RobotoSerif) = Typography(
+// The font family selected in Settings is supplied to NovelNunTypography at the app root so every
+// screen, including navigation labels, uses the same family.
+fun NovelNunTypography(fontFamily: FontFamily = FontFamily.SansSerif) = Typography(
     displayLarge = TextStyle(fontFamily = fontFamily, fontWeight = FontWeight.Normal, fontSize = 57.sp),
     headlineLarge = TextStyle(fontFamily = fontFamily, fontWeight = FontWeight.Normal, fontSize = 32.sp),
     headlineMedium = TextStyle(fontFamily = fontFamily, fontWeight = FontWeight.Normal, fontSize = 28.sp),
