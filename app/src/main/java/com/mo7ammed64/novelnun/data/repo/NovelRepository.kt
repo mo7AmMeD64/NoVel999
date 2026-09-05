@@ -9,33 +9,42 @@ import com.mo7ammed64.novelnun.data.model.Chapter
 import com.mo7ammed64.novelnun.data.model.Novel
 import com.mo7ammed64.novelnun.data.model.NovelDetails
 import com.mo7ammed64.novelnun.data.network.KolNovelSource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 
 /** Single entry point the UI layer talks to: remote scraping + local persistence. */
-class NovelRepository private constructor(context: Context) {
+class NovelRepository private constructor(context: Context) : NovelDetailsRepository {
 
     private val source = KolNovelSource()
     private val db = AppDatabase.get(context)
+    private val detailsCache = NovelDetailsCache { url ->
+        // Large chapter lists are parsed off the UI thread as well as fetched off it.
+        withContext(Dispatchers.IO) {
+            source.fetchDetails(url) ?: error("تعذر تحميل تفاصيل الرواية")
+        }
+    }
 
     // Remote --------------------------------------------------------------
 
-    suspend fun getRecentlyAdded(): Result<List<Novel>> = runCatching { source.fetchRecentlyAdded() }
-    suspend fun getPopular(): Result<List<Novel>> = runCatching { source.fetchPopular() }
-    suspend fun getLatest(): Result<List<Novel>> = runCatching { source.fetchLatest() }
-    suspend fun search(query: String): Result<List<Novel>> = runCatching { source.search(query) }
-    suspend fun getDetails(seriesUrl: String): Result<NovelDetails> = runCatching {
-        source.fetchDetails(seriesUrl) ?: error("تعذر تحميل تفاصيل الرواية")
+    suspend fun getRecentlyAdded(): Result<List<Novel>> = remoteResult { source.fetchRecentlyAdded() }
+    suspend fun getPopular(): Result<List<Novel>> = remoteResult { source.fetchPopular() }
+    suspend fun getLatest(): Result<List<Novel>> = remoteResult { source.fetchLatest() }
+    suspend fun search(query: String): Result<List<Novel>> = remoteResult { source.search(query) }
+    override suspend fun getDetails(seriesUrl: String, forceRefresh: Boolean): Result<NovelDetails> = remoteResult {
+        detailsCache.get(seriesUrl, forceRefresh)
     }
-    suspend fun getChapterContent(chapterUrl: String): Result<String> = runCatching {
+    suspend fun getChapterContent(chapterUrl: String): Result<String> = remoteResult {
         source.fetchChapterContent(chapterUrl)
     }
 
     // Favorites -------------------------------------------------------------
 
     fun observeFavorites(): Flow<List<FavoriteEntity>> = db.favoriteDao().observeAll()
-    fun observeIsFavorite(slug: String): Flow<Boolean> = db.favoriteDao().observeIsFavorite(slug)
+    override fun observeIsFavorite(slug: String): Flow<Boolean> = db.favoriteDao().observeIsFavorite(slug)
 
-    suspend fun toggleFavorite(novel: Novel, isCurrentlyFavorite: Boolean) {
+    override suspend fun toggleFavorite(novel: Novel, isCurrentlyFavorite: Boolean) {
         if (isCurrentlyFavorite) {
             db.favoriteDao().deleteBySlug(novel.slug)
         } else {
@@ -53,6 +62,8 @@ class NovelRepository private constructor(context: Context) {
     // History / continue reading ---------------------------------------------
 
     fun observeHistory(): Flow<List<HistoryEntity>> = db.historyDao().observeAll()
+
+    override fun observeHistory(slug: String): Flow<HistoryEntity?> = db.historyDao().observeBySlug(slug)
 
     suspend fun findHistory(slug: String): HistoryEntity? = db.historyDao().findBySlug(slug)
 
@@ -91,6 +102,15 @@ class NovelRepository private constructor(context: Context) {
 
     suspend fun removeDownload(entity: DownloadedChapterEntity) = db.downloadedChapterDao().delete(entity)
     suspend fun findDownload(chapterUrl: String) = db.downloadedChapterDao().find(chapterUrl)
+
+    // Cancellation is navigation/lifecycle control, not a user-facing network error.
+    private suspend fun <T> remoteResult(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
 
     companion object {
         @Volatile private var instance: NovelRepository? = null

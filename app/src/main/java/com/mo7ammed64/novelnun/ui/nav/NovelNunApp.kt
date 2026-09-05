@@ -1,11 +1,19 @@
 package com.mo7ammed64.novelnun.ui.nav
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -30,12 +38,17 @@ fun NovelNunApp(
     val currentRoute = backStackEntry?.destination?.route
 
     val showRail = Dest.railDestinations.any { it.route == currentRoute }
+    val forwardSign = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
-            if (showRail) {
+            AnimatedVisibility(
+                visible = showRail,
+                enter = expandHorizontally(spring(dampingRatio = 1f, stiffness = 450f), expandFrom = Alignment.Start),
+                exit = shrinkHorizontally(spring(dampingRatio = 1f, stiffness = 450f), shrinkTowards = Alignment.Start),
+            ) {
                 NovelNunNavRail(currentRoute = currentRoute) { dest ->
-                    navController.navigate(dest.route) {
+                    if (currentRoute != dest.route) navController.navigate(dest.route) {
                         popUpTo(navController.graph.startDestinationId) { saveState = true }
                         launchSingleTop = true
                         restoreState = true
@@ -45,7 +58,11 @@ fun NovelNunApp(
             NavHost(
                 navController = navController,
                 startDestination = Dest.Home.route,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                enterTransition = { pageEnter(popping = false, forwardSign = forwardSign) },
+                exitTransition = { pageExit(popping = false, forwardSign = forwardSign) },
+                popEnterTransition = { pageEnter(popping = true, forwardSign = forwardSign) },
+                popExitTransition = { pageExit(popping = true, forwardSign = forwardSign) },
             ) {
                 composable(Dest.Home.route) {
                     HomeScreen(
@@ -96,7 +113,12 @@ fun NovelNunApp(
                 composable(Dest.Reader.route) { entry ->
                     val novelUrl = java.net.URLDecoder.decode(entry.arguments?.getString("novelUrl").orEmpty(), "UTF-8")
                     val chapterUrl = java.net.URLDecoder.decode(entry.arguments?.getString("chapterUrl").orEmpty(), "UTF-8")
-                    ReaderScreen(novelUrl = novelUrl, chapterUrl = chapterUrl, onBack = { navController.popBackStack() })
+                    ReaderScreen(
+                        novelUrl = novelUrl,
+                        chapterUrl = chapterUrl,
+                        settings = settings,
+                        onBack = { navController.popBackStack() },
+                    )
                 }
             }
         }

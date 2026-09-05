@@ -1,16 +1,29 @@
 package com.mo7ammed64.novelnun.ui.details
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.mo7ammed64.novelnun.data.model.Chapter
-import com.mo7ammed64.novelnun.data.model.ChapterNumbers
+import com.mo7ammed64.novelnun.data.model.ChapterSearch
 import com.mo7ammed64.novelnun.data.model.NovelDetails
+import com.mo7ammed64.novelnun.data.repo.NovelDetailsRepository
 import com.mo7ammed64.novelnun.data.repo.NovelRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class DetailsUiState(
@@ -22,95 +35,109 @@ data class DetailsUiState(
     val chapterInputError: String? = null,
 )
 
-class DetailsViewModel(application: Application) : AndroidViewModel(application) {
-    private val repo = NovelRepository.get(application)
-
-    private val _state = MutableStateFlow(DetailsUiState())
+class DetailsViewModel(
+    private val repo: NovelDetailsRepository,
+    private val savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+    private val _state = MutableStateFlow(DetailsUiState(query = savedStateHandle[QUERY_KEY] ?: ""))
     val state: StateFlow<DetailsUiState> = _state
 
-    val isFavorite: StateFlow<Boolean> by lazy {
-        _state.flatMapLatest { s ->
-            s.details?.novel?.slug?.let { repo.observeIsFavorite(it) } ?: kotlinx.coroutines.flow.flowOf(false)
-        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
+    private var requestedUrl: String? = null
+    private var loadJob: Job? = null
+    private var historyJob: Job? = null
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val isFavorite: StateFlow<Boolean> = _state
+        .map { it.details?.novel?.slug }
+        .distinctUntilChanged()
+        .flatMapLatest { slug -> slug?.let(repo::observeIsFavorite) ?: flowOf(false) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** Re-entering the same back-stack entry must not reset the list or make another request. */
+    fun load(seriesUrl: String, forceRefresh: Boolean = false) {
+        if (!forceRefresh && requestedUrl == seriesUrl &&
+            (_state.value.details != null || loadJob?.isActive == true)
+        ) return
+
+        loadJob?.cancel()
+        if (requestedUrl != null && requestedUrl != seriesUrl) {
+            historyJob?.cancel()
+            savedStateHandle[QUERY_KEY] = ""
+            _state.value = DetailsUiState()
+        }
+        requestedUrl = seriesUrl
+
+        loadJob = viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
+            repo.getDetails(seriesUrl, forceRefresh)
+                .onSuccess { details ->
+                    ensureActive()
+                    _state.update { current ->
+                        current.copy(
+                            loading = false,
+                            details = details,
+                            continueChapter = details.chapters.firstOrNull { it.url == current.continueChapter?.url }
+                                ?: details.chapters.firstOrNull(),
+                            chapterInputError = null,
+                        )
+                    }
+                    observeProgress(details)
+                }
+                .onFailure { error ->
+                    ensureActive()
+                    _state.update { it.copy(loading = false, error = error.message ?: "تعذر تحميل الرواية") }
+                }
+        }
     }
 
-    fun load(seriesUrl: String) {
-        viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null)
-            repo.getDetails(seriesUrl)
-                .onSuccess { details ->
-                    val history = repo.findHistory(details.novel.slug)
-                    val continueChapter = details.chapters.firstOrNull { it.url == history?.lastChapterUrl }
-                        ?: details.chapters.firstOrNull()
-                    _state.value = _state.value.copy(
-                        loading = false,
-                        details = details,
-                        continueChapter = continueChapter,
-                        chapterInputError = null,
+    private fun observeProgress(details: NovelDetails) {
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
+            // Room updates Continue as soon as the reader records progress. No network reload
+            // or loading placeholder is needed when the user comes back from a chapter.
+            repo.observeHistory(details.novel.slug).collect { history ->
+                _state.update { current ->
+                    current.copy(
+                        continueChapter = details.chapters.firstOrNull { it.url == history?.lastChapterUrl }
+                            ?: details.chapters.firstOrNull(),
                     )
                 }
-                .onFailure { e -> _state.value = _state.value.copy(loading = false, error = e.message) }
+            }
         }
     }
 
     fun onQueryChange(query: String) {
-        _state.value = _state.value.copy(query = query, chapterInputError = null)
+        savedStateHandle[QUERY_KEY] = query
+        _state.update { it.copy(query = query, chapterInputError = null) }
     }
 
-    /**
-     * Filters by a title when text is entered. Numeric input is treated as a chapter number so the
-     * list immediately narrows to the requested chapter instead of merely looking for the string.
-     */
-    fun filteredChapters(reverseOrder: Boolean = false): List<Chapter> {
-        val chapters = orderedChapters(reverseOrder)
-        val chronological = orderedChapters(reverseOrder = false)
-        val query = _state.value.query.trim()
-        if (query.isBlank()) return chapters
+    fun clearQuery() = onQueryChange("")
 
-        val requestedNumber = chapterNumber(query)
-        return if (requestedNumber != null) {
-            // Match the real chapter number first (parsed from the title when the source provides
-            // it); only fall back to the list position, and always on the chronological list so
-            // the displayed/reversed order can not shift the result.
-            val numberMatches = chapters.filter { chapter ->
-                chapter.number == requestedNumber || chapterNumber(chapter.title) == requestedNumber
-            }
-            if (numberMatches.isNotEmpty()) {
-                numberMatches
-            } else {
-                chronological.getOrNull(requestedNumber - 1)?.let(::listOf).orEmpty()
-            }
-        } else {
-            chapters.filter { it.title.contains(query, ignoreCase = true) }
-        }
-    }
+    fun filteredChapters(reverseOrder: Boolean = false): List<Chapter> =
+        ChapterSearch.filter(_state.value.details?.chapters.orEmpty(), _state.value.query, reverseOrder)
 
-    /** Finds the chapter requested in the chapter-number bar. */
-    fun chapterForNumber(reverseOrder: Boolean = false): Chapter? {
-        val requestedNumber = chapterNumber(_state.value.query) ?: return null
-        val chronological = orderedChapters(reverseOrder = false)
-
-        // Prefer the actual number in the title; the list position is only a fallback for sources
-        // that do not include a number in their chapter label. The fallback always indexes the
-        // chronological (oldest-first) list, never the reversed display order.
-        return chronological.firstOrNull { it.number == requestedNumber }
-            ?: chronological.firstOrNull { chapterNumber(it.title) == requestedNumber }
-            ?: chronological.getOrNull(requestedNumber - 1)
-    }
+    fun requestedChapter(): Chapter? =
+        ChapterSearch.requestedChapter(_state.value.details?.chapters.orEmpty(), _state.value.query)
 
     fun markChapterNotFound() {
-        _state.value = _state.value.copy(chapterInputError = "لم يتم العثور على هذا الفصل")
+        _state.update { it.copy(chapterInputError = "أدخل رقم فصل متاحًا أو اختر فصلًا من النتائج") }
     }
-
-    private fun orderedChapters(reverseOrder: Boolean): List<Chapter> {
-        val chapters = _state.value.details?.chapters.orEmpty()
-        return if (reverseOrder) chapters.asReversed() else chapters
-    }
-
-    private fun chapterNumber(value: String): Int? = ChapterNumbers.parse(value)
 
     fun toggleFavorite() {
         val novel = _state.value.details?.novel ?: return
         viewModelScope.launch { repo.toggleFavorite(novel, isFavorite.value) }
+    }
+
+    companion object {
+        private const val QUERY_KEY = "chapter_query"
+
+        val Factory = viewModelFactory {
+            initializer {
+                DetailsViewModel(
+                    repo = NovelRepository.get(checkNotNull(this[APPLICATION_KEY])),
+                    savedStateHandle = createSavedStateHandle(),
+                )
+            }
+        }
     }
 }

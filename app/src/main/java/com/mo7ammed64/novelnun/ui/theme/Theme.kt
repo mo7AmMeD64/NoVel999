@@ -45,7 +45,7 @@ fun NovelNunTheme(
     MaterialExpressiveTheme(
         colorScheme = NovelNunDarkColors,
         typography = NovelNunTypography(fontFamily),
-        motionScheme = MotionScheme.standard(),
+        motionScheme = MotionScheme.expressive(),
         content = content,
     )
 }

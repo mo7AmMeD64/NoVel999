@@ -30,6 +30,9 @@ interface HistoryDao {
     @Query("SELECT * FROM history WHERE slug = :slug LIMIT 1")
     suspend fun findBySlug(slug: String): HistoryEntity?
 
+    @Query("SELECT * FROM history WHERE slug = :slug LIMIT 1")
+    fun observeBySlug(slug: String): Flow<HistoryEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: HistoryEntity)
 

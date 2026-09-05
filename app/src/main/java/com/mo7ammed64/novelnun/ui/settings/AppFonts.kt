@@ -8,7 +8,7 @@ import com.mo7ammed64.novelnun.R
 import java.io.File
 
 /**
- * A font the user can pick for the whole app. Three flavors:
+ * A font the user can pick independently for the app UI or reader. Three flavors:
  *  - [System]   fonts that ship with Android (Roboto family and friends),
  *  - [Bundled]  Arabic fonts packaged inside the app (res/font),
  *  - [Imported] .ttf/.otf files the user imported from device storage.
@@ -58,15 +58,15 @@ sealed interface AppFontOption {
 
 /** Built-in choices: bundled Arabic fonts first, then the platform families. */
 val builtInFonts: List<AppFontOption> = listOf(
-    AppFontOption.Bundled("cairo", "القاهرة — عصري أنيق", R.font.cairo),
-    AppFontOption.Bundled("tajawal", "تجوال — بسيط وواضح", R.font.tajawal_regular, R.font.tajawal_bold),
-    AppFontOption.Bundled("almarai", "المراعي — هندسي نظيف", R.font.almarai_regular, R.font.almarai_bold),
-    AppFontOption.Bundled("amiri", "أميري — نسخ كلاسيكي للقراءة", R.font.amiri_regular, R.font.amiri_bold),
-    AppFontOption.Bundled("noto_kufi_arabic", "نوتو كوفي — عناوين", R.font.noto_kufi_arabic),
-    AppFontOption.Bundled("reem_kufi", "ريم كوفي — زخرفي", R.font.reem_kufi),
-    AppFontOption.Bundled("lalezar", "لاله زار — جريء", R.font.lalezar),
-    AppFontOption.System("sans-serif", "Roboto — افتراضي النظام", "sans-serif"),
-    AppFontOption.System("roboto-serif", "Roboto Serif — كلاسيكي", "roboto-serif"),
-    AppFontOption.System("sans-serif-condensed", "Roboto Condensed — مضغوط", "sans-serif-condensed"),
-    AppFontOption.System("monospace", "Monospace — ثابت العرض", "monospace"),
+    AppFontOption.Bundled("cairo", "Cairo — Modern", R.font.cairo),
+    AppFontOption.Bundled("tajawal", "Tajawal — Simple and clear", R.font.tajawal_regular, R.font.tajawal_bold),
+    AppFontOption.Bundled("almarai", "Almarai — Geometric", R.font.almarai_regular, R.font.almarai_bold),
+    AppFontOption.Bundled("amiri", "Amiri — Classic reading", R.font.amiri_regular, R.font.amiri_bold),
+    AppFontOption.Bundled("noto_kufi_arabic", "Noto Kufi Arabic — Headlines", R.font.noto_kufi_arabic),
+    AppFontOption.Bundled("reem_kufi", "Reem Kufi — Decorative", R.font.reem_kufi),
+    AppFontOption.Bundled("lalezar", "Lalezar — Bold", R.font.lalezar),
+    AppFontOption.System("sans-serif", "Roboto — System default", "sans-serif"),
+    AppFontOption.System("roboto-serif", "Roboto Serif — Classic", "roboto-serif"),
+    AppFontOption.System("sans-serif-condensed", "Roboto Condensed — Compact", "sans-serif-condensed"),
+    AppFontOption.System("monospace", "Monospace — Fixed width", "monospace"),
 )
