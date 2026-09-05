@@ -25,6 +25,16 @@ jobs:
           set -o pipefail
           gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
 
+      - name: Publish build failure details
+        if: failure()
+        shell: bash
+        run: |
+          echo "## Gradle build output" >> "$GITHUB_STEP_SUMMARY"
+          cat build.log >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=Gradle build::$line"
+          done < <(tail -40 build.log)
+
       - name: Upload build log when the build fails
         if: failure()
         uses: actions/upload-artifact@v4
