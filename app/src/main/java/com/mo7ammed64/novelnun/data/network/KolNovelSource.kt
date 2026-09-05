@@ -116,12 +116,45 @@ class KolNovelSource {
         val slug = slugFromUrl(seriesUrl) ?: seriesUrl
 
         val chapters = doc.select("li.wp-manga-chapter a, .eplister a, .chapter-list a")
-            .mapIndexedNotNull { index, a ->
-                val href = a.absUrl("href").ifBlank { a.attr("href") }
-                if (href.isBlank()) return@mapIndexedNotNull null
-                Chapter(title = a.text().trim().ifBlank { "الفصل ${index + 1}" }, url = href, index = index)
+            .asSequence()
+            .filterNot { a ->
+                // Skip anything sitting inside a pager/pagination control - some themes leave a
+                // hidden "compact" anchor (e.g. just "الفصل 2") per row for responsive layouts,
+                // and Jsoup sees it even though CSS hides it. Both look like noise: short text,
+                // no real descriptive title or date attached to it.
+                a.parents().any { p ->
+                    p.hasClass("pagination") || p.hasClass("wp-pagenavi") || p.hasClass("page-numbers") ||
+                        p.tagName() == "nav"
+                }
             }
-            .let { list -> if (list.isEmpty()) list else list }
+            .mapNotNull { a ->
+                val href = a.absUrl("href").ifBlank { a.attr("href") }
+                val text = a.text().trim()
+                if (href.isBlank() || text.isBlank()) null else text to href
+            }
+            // A genuine chapter row has a full descriptive title (+ often a date); bare "الفصل N"
+            // duplicates are short noise from the same markup quirk above.
+            .filter { (text, _) -> text.length >= 12 }
+            .toList()
+            .let { entries ->
+                // Dedupe by chapter number, keeping whichever duplicate has the longest (most
+                // complete) title.
+                val byNumber = linkedMapOf<Int, Pair<String, String>>()
+                val noNumber = mutableListOf<Pair<String, String>>()
+                for (entry in entries) {
+                    val num = Regex("""\d+""").find(entry.first)?.value?.toIntOrNull()
+                    if (num == null) {
+                        noNumber += entry
+                        continue
+                    }
+                    val existing = byNumber[num]
+                    if (existing == null || entry.first.length > existing.first.length) {
+                        byNumber[num] = entry
+                    }
+                }
+                byNumber.values.toList() + noNumber
+            }
+            .mapIndexed { index, (title, href) -> Chapter(title = title, url = href, index = index) }
 
         val novel = Novel(
             slug = slug,

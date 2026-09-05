@@ -48,6 +48,13 @@ fun NovelNunApp(navController: NavHostController = rememberNavController()) {
                         onOpenNovel = { url -> navController.navigate(Dest.Details.build(url)) },
                         onOpenHistory = { navController.navigate(Dest.History.route) },
                         onOpenFiles = { navController.navigate(Dest.Files.route) },
+                        onOpenLatest = { navController.navigate(Dest.Latest.route) },
+                    )
+                }
+                composable(Dest.Latest.route) {
+                    com.mo7ammed64.novelnun.ui.latest.LatestScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenNovel = { url -> navController.navigate(Dest.Details.build(url)) },
                     )
                 }
                 composable(Dest.Search.route) {

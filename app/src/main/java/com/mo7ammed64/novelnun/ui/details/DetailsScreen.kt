@@ -95,6 +95,22 @@ fun DetailsScreen(
                         )
                     }
 
+                    if (details.synopsis.isNotBlank()) {
+                        item {
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Rtl,
+                            ) {
+                                Text(
+                                    text = details.synopsis,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Right,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -155,12 +171,17 @@ fun DetailsScreen(
                                     .padding(vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    text = chapter.title,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f),
-                                )
+                                androidx.compose.runtime.CompositionLocalProvider(
+                                    androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Rtl,
+                                ) {
+                                    Text(
+                                        text = chapter.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        textAlign = TextAlign.Right,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                                 IconButton(onClick = { onOpenChapter(details.novel.url, chapter.url) }) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = "اقرأ")
                                 }

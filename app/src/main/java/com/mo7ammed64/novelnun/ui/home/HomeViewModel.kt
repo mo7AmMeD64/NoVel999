@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
-    val recentlyAdded: List<Novel> = emptyList(),
     val popular: List<Novel> = emptyList(),
     val latest: List<Novel> = emptyList(),
     val loadingPopular: Boolean = true,
@@ -31,10 +30,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun refresh() {
         viewModelScope.launch {
             _state.value = _state.value.copy(loadingPopular = true, loadingLatest = true, error = null)
-
-            repo.getRecentlyAdded().onSuccess { list ->
-                _state.value = _state.value.copy(recentlyAdded = list)
-            }
 
             repo.getPopular()
                 .onSuccess { list -> _state.value = _state.value.copy(popular = list, loadingPopular = false) }

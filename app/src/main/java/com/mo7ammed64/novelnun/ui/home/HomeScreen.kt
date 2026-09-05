@@ -56,6 +56,7 @@ fun HomeScreen(
     onOpenNovel: (String) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenFiles: () -> Unit,
+    onOpenLatest: () -> Unit,
     viewModel: HomeViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -68,7 +69,7 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                ExploreRow(onClick = { state.recentlyAdded.firstOrNull()?.let { onOpenNovel(it.url) } })
+                ExploreRow(onClick = onOpenLatest)
             }
 
             item {

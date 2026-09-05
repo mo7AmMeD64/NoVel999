@@ -7,6 +7,7 @@ sealed class Dest(val route: String) {
     data object Settings : Dest("settings")
     data object History : Dest("history")
     data object Files : Dest("files")
+    data object Latest : Dest("latest")
     data object Details : Dest("details/{url}") {
         fun build(url: String) = "details/${java.net.URLEncoder.encode(url, "UTF-8")}"
     }
