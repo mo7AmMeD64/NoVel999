@@ -18,6 +18,7 @@ data class DetailsUiState(
     val error: String? = null,
     val query: String = "",
     val continueChapter: Chapter? = null,
+    val chapterInputError: String? = null,
 )
 
 class DetailsViewModel(application: Application) : AndroidViewModel(application) {
@@ -40,20 +41,72 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
                     val history = repo.findHistory(details.novel.slug)
                     val continueChapter = details.chapters.firstOrNull { it.url == history?.lastChapterUrl }
                         ?: details.chapters.firstOrNull()
-                    _state.value = _state.value.copy(loading = false, details = details, continueChapter = continueChapter)
+                    _state.value = _state.value.copy(
+                        loading = false,
+                        details = details,
+                        continueChapter = continueChapter,
+                        chapterInputError = null,
+                    )
                 }
                 .onFailure { e -> _state.value = _state.value.copy(loading = false, error = e.message) }
         }
     }
 
     fun onQueryChange(query: String) {
-        _state.value = _state.value.copy(query = query)
+        _state.value = _state.value.copy(query = query, chapterInputError = null)
     }
 
-    fun filteredChapters(): List<Chapter> {
+    /**
+     * Filters by a title when text is entered. Numeric input is treated as a chapter number so the
+     * list immediately narrows to the requested chapter instead of merely looking for the string.
+     */
+    fun filteredChapters(reverseOrder: Boolean = false): List<Chapter> {
+        val chapters = orderedChapters(reverseOrder)
+        val query = _state.value.query.trim()
+        if (query.isBlank()) return chapters
+
+        val requestedNumber = chapterNumber(query)
+        return if (requestedNumber != null) {
+            val numberMatches = chapters.filter { chapterNumber(it.title) == requestedNumber }
+            if (numberMatches.isNotEmpty()) {
+                numberMatches
+            } else {
+                chapters.getOrNull(requestedNumber - 1)?.let(::listOf).orEmpty()
+            }
+        } else {
+            chapters.filter { it.title.contains(query, ignoreCase = true) }
+        }
+    }
+
+    /** Finds the chapter requested in the chapter-number bar. */
+    fun chapterForNumber(reverseOrder: Boolean = false): Chapter? {
+        val requestedNumber = chapterNumber(_state.value.query) ?: return null
+        val chapters = orderedChapters(reverseOrder)
+
+        // Prefer the actual number in the title; the list position is only a fallback for sources
+        // that do not include a number in their chapter label.
+        return chapters.firstOrNull { chapterNumber(it.title) == requestedNumber }
+            ?: chapters.getOrNull(requestedNumber - 1)
+    }
+
+    fun markChapterNotFound() {
+        _state.value = _state.value.copy(chapterInputError = "لم يتم العثور على هذا الفصل")
+    }
+
+    private fun orderedChapters(reverseOrder: Boolean): List<Chapter> {
         val chapters = _state.value.details?.chapters.orEmpty()
-        val query = _state.value.query
-        return if (query.isBlank()) chapters else chapters.filter { it.title.contains(query, ignoreCase = true) }
+        return if (reverseOrder) chapters.asReversed() else chapters
+    }
+
+    private fun chapterNumber(value: String): Int? {
+        val westernDigits = value.map { character ->
+            when (character) {
+                in '٠'..'٩' -> ('0'.code + (character.code - '٠'.code)).toChar()
+                in '۰'..'۹' -> ('0'.code + (character.code - '۰'.code)).toChar()
+                else -> character
+            }
+        }.joinToString("")
+        return Regex("\\d+").find(westernDigits)?.value?.toIntOrNull()
     }
 
     fun toggleFavorite() {
