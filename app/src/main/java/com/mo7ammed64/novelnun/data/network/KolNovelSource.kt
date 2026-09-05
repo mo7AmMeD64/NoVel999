@@ -1,6 +1,7 @@
 package com.mo7ammed64.novelnun.data.network
 
 import com.mo7ammed64.novelnun.data.model.Chapter
+import com.mo7ammed64.novelnun.data.model.ChapterNumbers
 import com.mo7ammed64.novelnun.data.model.Novel
 import com.mo7ammed64.novelnun.data.model.NovelDetails
 import kotlinx.coroutines.Dispatchers
@@ -132,17 +133,18 @@ class KolNovelSource {
                 val text = a.text().trim()
                 if (href.isBlank() || text.isBlank()) null else text to href
             }
-            // A genuine chapter row has a full descriptive title (+ often a date); bare "الفصل N"
-            // duplicates are short noise from the same markup quirk above.
-            .filter { (text, _) -> text.length >= 12 }
+            // A genuine chapter row has a full descriptive title (+ often a date); bare "2" style
+            // anchors are short noise from the same markup quirk above. Keep "الفصل 2" (7 chars)
+            // because some series list their chapters with short labels only.
+            .filter { (text, _) -> text.length >= 6 }
             .toList()
             .let { entries ->
                 // Dedupe by chapter number, keeping whichever duplicate has the longest (most
-                // complete) title.
+                // complete) title. Titles can use western, Arabic-Indic or Persian digits.
                 val byNumber = linkedMapOf<Int, Pair<String, String>>()
                 val noNumber = mutableListOf<Pair<String, String>>()
                 for (entry in entries) {
-                    val num = Regex("""\d+""").find(entry.first)?.value?.toIntOrNull()
+                    val num = ChapterNumbers.parse(entry.first)
                     if (num == null) {
                         noNumber += entry
                         continue
@@ -154,7 +156,39 @@ class KolNovelSource {
                 }
                 byNumber.values.toList() + noNumber
             }
-            .mapIndexed { index, (title, href) -> Chapter(title = title, url = href, index = index) }
+            .let { deduped ->
+                // Normalize to chronological (oldest-first) order. The site renders the chapter
+                // list newest-first; detect the direction from the numbered entries so the list,
+                // the positions used by the jump-to-number field and the "reverse order" setting
+                // all behave correctly regardless of how the markup is ordered.
+                val numbers = deduped.mapNotNull { ChapterNumbers.parse(it.first) }
+                val pairs = numbers.zipWithNext()
+                val mostlyDescending =
+                    pairs.count { (a, b) -> a > b } > pairs.count { (a, b) -> a < b }
+                val chronological = if (mostlyDescending) deduped.asReversed() else deduped
+
+                // Unnumbered rows (prologues, extras) stick with the chapter they follow; rows
+                // that appear before any numbered chapter sort to the very top.
+                var lastNumber = 0
+                val sortKeys = IntArray(chronological.size)
+                chronological.forEachIndexed { position, entry ->
+                    val number = ChapterNumbers.parse(entry.first)
+                    sortKeys[position] = number ?: lastNumber
+                    if (number != null) lastNumber = number
+                }
+                chronological
+                    .mapIndexed { position, entry -> sortKeys[position] to entry }
+                    .sortedBy { (key, _) -> key } // stable: equal keys keep page order
+                    .map { (_, entry) -> entry }
+            }
+            .mapIndexed { index, (title, href) ->
+                Chapter(
+                    title = title,
+                    url = href,
+                    index = index,
+                    number = ChapterNumbers.parse(title),
+                )
+            }
 
         val novel = Novel(
             slug = slug,
