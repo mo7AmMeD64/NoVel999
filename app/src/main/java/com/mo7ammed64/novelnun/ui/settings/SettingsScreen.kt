@@ -57,7 +57,7 @@ fun SettingsScreen(settings: AppSettings) {
 
             ListItem(
                 modifier = Modifier.clickable {
-                    settings.setReverseChapterOrder(!settings.reverseChapterOrder)
+                    settings.updateReverseChapterOrder(!settings.reverseChapterOrder)
                 },
                 headlineContent = { Text("ترتيب الفصول عكسياً") },
                 supportingContent = {
@@ -69,7 +69,7 @@ fun SettingsScreen(settings: AppSettings) {
                 trailingContent = {
                     Switch(
                         checked = settings.reverseChapterOrder,
-                        onCheckedChange = settings::setReverseChapterOrder,
+                        onCheckedChange = settings::updateReverseChapterOrder,
                     )
                 },
             )
@@ -105,7 +105,7 @@ fun SettingsScreen(settings: AppSettings) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    settings.setFont(option)
+                                    settings.updateFont(option)
                                     showFontPicker = false
                                 }
                                 .padding(vertical = 6.dp),
@@ -114,7 +114,7 @@ fun SettingsScreen(settings: AppSettings) {
                             RadioButton(
                                 selected = settings.font == option,
                                 onClick = {
-                                    settings.setFont(option)
+                                    settings.updateFont(option)
                                     showFontPicker = false
                                 },
                             )
