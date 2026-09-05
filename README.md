@@ -46,7 +46,7 @@ MT Manager, inspect the relevant kolnovel.com page's HTML (e.g. via "view source
 and adjust the `.select(...)` calls to match.
 
 ## Building
-No local build/signing is required. Push to `main` (or run the workflow manually) and GitHub
+No local build/signing is required. Open a pull request to `main`, push to `main`, or run the workflow manually. GitHub
 Actions runs the unit tests, builds an **unsigned** release APK and uploads it as a workflow artifact
 (`NovelNun-unsigned`) - download it from the Actions run summary.
 
