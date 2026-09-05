@@ -44,12 +44,12 @@ class AppSettings(context: Context) {
     )
         private set
 
-    fun setFont(value: AppFont) {
+    fun updateFont(value: AppFont) {
         font = value
         preferences.edit().putString(KEY_FONT, value.preferenceValue).apply()
     }
 
-    fun setReverseChapterOrder(value: Boolean) {
+    fun updateReverseChapterOrder(value: Boolean) {
         reverseChapterOrder = value
         preferences.edit().putBoolean(KEY_REVERSE_CHAPTERS, value).apply()
     }
