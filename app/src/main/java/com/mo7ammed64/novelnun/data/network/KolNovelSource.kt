@@ -85,12 +85,12 @@ class KolNovelSource {
     /** "آخر الاضافات" - kept as an alias of [fetchLatest]; the API doesn't distinguish the two. */
     suspend fun fetchRecentlyAdded(): List<Novel> = fetchLatest()
 
+    /** Confirmed from a later HAR capture: /discover has a real `q=` search parameter. */
     suspend fun search(query: String): List<Novel> {
-        val json = getJson("$base/discover?limit=100&sort=latest&genre_match=all")
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+        val json = getJson("$base/discover?limit=40&sort=title&genre_match=all&q=$encoded")
         val data = json.optJSONArray("data") ?: JSONArray()
-        return (0 until data.length())
-            .map { novelFromJson(data.getJSONObject(it)) }
-            .filter { it.title.contains(query, ignoreCase = true) }
+        return (0 until data.length()).map { novelFromJson(data.getJSONObject(it)) }
     }
 
     suspend fun fetchDetails(seriesUrl: String): NovelDetails? {
