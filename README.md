@@ -9,9 +9,12 @@ loading indicators, expressive FAB menu, connected button groups).
   menu (History / Open files).
 - **Search** — full-text search against the site.
 - **Saved** — your favorited novels (persisted locally with Room).
-- **Settings** — choose the app-wide font and reverse the chapter order, alongside basic app info.
+- **Settings** — choose the app-wide font (7 bundled Arabic fonts — Cairo, Tajawal, Almarai, Amiri,
+  Noto Kufi, Reem Kufi, Lalezar — plus the platform families, or import your own `.ttf`/`.otf`
+  from device storage) and reverse the chapter order, alongside basic app info.
 - **Details** — cover, synopsis, favorite toggle, Continue (resumes your last-read chapter),
-  and the chapter list with a chapter-number jump field.
+  and the chapter list with a chapter-number jump field (accepts western and Arabic-Indic digits;
+  chapters are normalized to oldest-first, so "12" always opens chapter 12).
 - **Reader** — chapter text, with reading progress recorded automatically.
 - **History** — your reading history, openable per-entry, clearable.
 - **Open files** — chapters you've explicitly downloaded for offline reading.

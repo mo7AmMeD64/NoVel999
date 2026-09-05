@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mo7ammed64.novelnun.data.model.Chapter
+import com.mo7ammed64.novelnun.data.model.ChapterNumbers
 import com.mo7ammed64.novelnun.data.model.NovelDetails
 import com.mo7ammed64.novelnun.data.repo.NovelRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,16 +63,22 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
      */
     fun filteredChapters(reverseOrder: Boolean = false): List<Chapter> {
         val chapters = orderedChapters(reverseOrder)
+        val chronological = orderedChapters(reverse = false)
         val query = _state.value.query.trim()
         if (query.isBlank()) return chapters
 
         val requestedNumber = chapterNumber(query)
         return if (requestedNumber != null) {
-            val numberMatches = chapters.filter { chapterNumber(it.title) == requestedNumber }
+            // Match the real chapter number first (parsed from the title when the source provides
+            // it); only fall back to the list position, and always on the chronological list so
+            // the displayed/reversed order can not shift the result.
+            val numberMatches = chapters.filter { chapter ->
+                chapter.number == requestedNumber || chapterNumber(chapter.title) == requestedNumber
+            }
             if (numberMatches.isNotEmpty()) {
                 numberMatches
             } else {
-                chapters.getOrNull(requestedNumber - 1)?.let(::listOf).orEmpty()
+                chronological.getOrNull(requestedNumber - 1)?.let(::listOf).orEmpty()
             }
         } else {
             chapters.filter { it.title.contains(query, ignoreCase = true) }
@@ -81,12 +88,14 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
     /** Finds the chapter requested in the chapter-number bar. */
     fun chapterForNumber(reverseOrder: Boolean = false): Chapter? {
         val requestedNumber = chapterNumber(_state.value.query) ?: return null
-        val chapters = orderedChapters(reverseOrder)
+        val chronological = orderedChapters(reverse = false)
 
         // Prefer the actual number in the title; the list position is only a fallback for sources
-        // that do not include a number in their chapter label.
-        return chapters.firstOrNull { chapterNumber(it.title) == requestedNumber }
-            ?: chapters.getOrNull(requestedNumber - 1)
+        // that do not include a number in their chapter label. The fallback always indexes the
+        // chronological (oldest-first) list, never the reversed display order.
+        return chronological.firstOrNull { it.number == requestedNumber }
+            ?: chronological.firstOrNull { chapterNumber(it.title) == requestedNumber }
+            ?: chronological.getOrNull(requestedNumber - 1)
     }
 
     fun markChapterNotFound() {
@@ -98,16 +107,7 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
         return if (reverseOrder) chapters.asReversed() else chapters
     }
 
-    private fun chapterNumber(value: String): Int? {
-        val westernDigits = value.map { character ->
-            when (character) {
-                in '٠'..'٩' -> ('0'.code + (character.code - '٠'.code)).toChar()
-                in '۰'..'۹' -> ('0'.code + (character.code - '۰'.code)).toChar()
-                else -> character
-            }
-        }.joinToString("")
-        return Regex("\\d+").find(westernDigits)?.value?.toIntOrNull()
-    }
+    private fun chapterNumber(value: String): Int? = ChapterNumbers.parse(value)
 
     fun toggleFavorite() {
         val novel = _state.value.details?.novel ?: return

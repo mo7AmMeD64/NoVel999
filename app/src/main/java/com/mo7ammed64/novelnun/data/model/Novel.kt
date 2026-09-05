@@ -26,4 +26,6 @@ data class Chapter(
     val title: String,
     val url: String,
     val index: Int,
+    /** Chapter number parsed from the title (western/Arabic-Indic/Persian digits), if any. */
+    val number: Int? = null,
 )
