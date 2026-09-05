@@ -1,5 +1,6 @@
 package com.mo7ammed64.novelnun.ui.nav
 
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
