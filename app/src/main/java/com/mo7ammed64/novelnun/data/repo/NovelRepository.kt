@@ -6,6 +6,7 @@ import com.mo7ammed64.novelnun.data.db.DownloadedChapterEntity
 import com.mo7ammed64.novelnun.data.db.FavoriteEntity
 import com.mo7ammed64.novelnun.data.db.HistoryEntity
 import com.mo7ammed64.novelnun.data.model.Chapter
+import com.mo7ammed64.novelnun.data.model.ChapterPage
 import com.mo7ammed64.novelnun.data.model.Novel
 import com.mo7ammed64.novelnun.data.model.NovelDetails
 import com.mo7ammed64.novelnun.data.network.KolNovelSource
@@ -25,6 +26,9 @@ class NovelRepository private constructor(context: Context) {
     suspend fun search(query: String): Result<List<Novel>> = runCatching { source.search(query) }
     suspend fun getDetails(seriesUrl: String): Result<NovelDetails> = runCatching {
         source.fetchDetails(seriesUrl) ?: error("تعذر تحميل تفاصيل الرواية")
+    }
+    suspend fun getMoreChapters(seriesUrl: String, cursor: String, startIndex: Int): Result<ChapterPage> = runCatching {
+        source.fetchMoreChapters(seriesUrl, cursor, startIndex)
     }
     suspend fun getChapterContent(chapterUrl: String): Result<String> = runCatching {
         source.fetchChapterContent(chapterUrl)

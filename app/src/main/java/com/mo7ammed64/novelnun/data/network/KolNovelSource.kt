@@ -3,6 +3,7 @@ package com.mo7ammed64.novelnun.data.network
 import android.content.Context
 import com.mo7ammed64.novelnun.data.model.Chapter
 import com.mo7ammed64.novelnun.data.model.ChapterNumbers
+import com.mo7ammed64.novelnun.data.model.ChapterPage
 import com.mo7ammed64.novelnun.data.model.Novel
 import com.mo7ammed64.novelnun.data.model.NovelDetails
 import kotlinx.coroutines.Dispatchers
@@ -27,9 +28,7 @@ import java.util.concurrent.TimeUnit
  * Two things weren't visible in that capture, so rather than guess at unverified query params:
  * - "Popular": no `sort=rating`/`sort=popular` value was exercised, so this fetches a larger
  *   latest-sorted batch and ranks it client-side by the `score` field the API already returns.
- * - Search: no dedicated search endpoint was exercised, so this filters a fetched batch by title
- *   client-side (digit-normalized, so "142" matches "١٤٢") instead of trusting a guessed
- *   `search=`/`s=` param that the server might silently ignore.
+ * - Search: confirmed from a later HAR capture - /discover has a real `q=` search parameter.
  */
 class KolNovelSource(context: Context) {
 
@@ -91,7 +90,6 @@ class KolNovelSource(context: Context) {
     /** "آخر الاضافات" - kept as an alias of [fetchLatest]; the API doesn't distinguish the two. */
     suspend fun fetchRecentlyAdded(): List<Novel> = fetchLatest()
 
-    /** Confirmed from a later HAR capture: /discover has a real `q=` search parameter. */
     suspend fun search(query: String): List<Novel> {
         val encoded = java.net.URLEncoder.encode(query, "UTF-8")
         val json = getJson("$base/discover?limit=40&sort=title&genre_match=all&q=$encoded")
@@ -99,6 +97,37 @@ class KolNovelSource(context: Context) {
         return (0 until data.length()).map { novelFromJson(data.getJSONObject(it)) }
     }
 
+    private fun parseChapterPage(listJson: JSONObject, startIndex: Int): ChapterPage {
+        val data = listJson.optJSONArray("data") ?: JSONArray()
+        val chapters = mutableListOf<Chapter>()
+        for (i in 0 until data.length()) {
+            val entry = data.getJSONObject(i)
+            val chapterId = entry.getInt("id")
+            val number = entry.optString("number").ifBlank { null }?.let { ChapterNumbers.parse(it) }
+            val rawTitle = entry.optString("title").ifBlank { null }
+            val displayTitle = when {
+                number != null && rawTitle != null -> "الفصل $number: $rawTitle"
+                number != null -> "الفصل $number"
+                else -> rawTitle ?: "فصل"
+            }
+            chapters += Chapter(
+                title = displayTitle,
+                url = "$base/reader/$chapterId",
+                index = startIndex + chapters.size,
+                number = number,
+            )
+        }
+        val nextCursor = listJson.optJSONObject("meta")
+            ?.optString("next_cursor")
+            ?.takeIf { it.isNotBlank() && it != "null" }
+        return ChapterPage(chapters, nextCursor)
+    }
+
+    /**
+     * Loads novel metadata and only the *first* page of chapters (up to 300 - covers the large
+     * majority of novels completely in one request). For longer novels, [fetchMoreChapters] pages
+     * in the rest on demand instead of making the initial load wait on every page up front.
+     */
     suspend fun fetchDetails(seriesUrl: String): NovelDetails? = coroutineScope {
         val id = idFromUrl(seriesUrl) ?: return@coroutineScope null
 
@@ -110,35 +139,7 @@ class KolNovelSource(context: Context) {
         val titleJson = titleDeferred.await() ?: return@coroutineScope null
         val novel = novelFromJson(titleJson)
 
-        // Chapters come back chronological (oldest first) already - no ordering heuristics needed.
-        val chapters = mutableListOf<Chapter>()
-        var listJson = firstPageDeferred.await()
-        var page = 0
-        while (true) {
-            val data = listJson.optJSONArray("data") ?: JSONArray()
-            for (i in 0 until data.length()) {
-                val entry = data.getJSONObject(i)
-                val chapterId = entry.getInt("id")
-                val number = entry.optString("number").ifBlank { null }?.let { ChapterNumbers.parse(it) }
-                val rawTitle = entry.optString("title").ifBlank { null }
-                val displayTitle = when {
-                    number != null && rawTitle != null -> "الفصل $number: $rawTitle"
-                    number != null -> "الفصل $number"
-                    else -> rawTitle ?: "فصل"
-                }
-                chapters += Chapter(
-                    title = displayTitle,
-                    url = "$base/reader/$chapterId",
-                    index = chapters.size,
-                    number = number,
-                )
-            }
-            val meta = listJson.optJSONObject("meta")
-            val cursor = meta?.optString("next_cursor")?.takeIf { it.isNotBlank() && it != "null" }
-            page++
-            if (cursor == null || page >= 15) break
-            listJson = getJson("$base/titles/$id/reading-list?limit=300&cursor=$cursor")
-        }
+        val firstPage = parseChapterPage(firstPageDeferred.await(), startIndex = 0)
 
         val description = titleJson.optString("description")
             .replace(Regex("<[^>]*>"), " ")
@@ -151,8 +152,16 @@ class KolNovelSource(context: Context) {
             synopsis = description,
             status = titleJson.optString("status").ifBlank { null },
             author = titleJson.optString("author").ifBlank { null },
-            chapters = chapters,
+            chapters = firstPage.chapters,
+            nextChaptersCursor = firstPage.nextCursor,
         )
+    }
+
+    /** Fetches the next page of chapters for a novel already loaded via [fetchDetails]. */
+    suspend fun fetchMoreChapters(seriesUrl: String, cursor: String, startIndex: Int): ChapterPage {
+        val id = idFromUrl(seriesUrl) ?: return ChapterPage(emptyList(), null)
+        val listJson = getJson("$base/titles/$id/reading-list?limit=300&cursor=$cursor")
+        return parseChapterPage(listJson, startIndex)
     }
 
     suspend fun fetchChapterContent(chapterUrl: String): String = withContext(Dispatchers.IO) {

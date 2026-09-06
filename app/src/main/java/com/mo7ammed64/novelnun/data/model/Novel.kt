@@ -19,6 +19,14 @@ data class NovelDetails(
     val status: String?,
     val author: String?,
     val chapters: List<Chapter>,
+    /** Opaque cursor for fetching the next page of chapters, or null if this is all of them. */
+    val nextChaptersCursor: String? = null,
+)
+
+/** One additional page of chapters fetched after the initial [NovelDetails] load. */
+data class ChapterPage(
+    val chapters: List<Chapter>,
+    val nextCursor: String?,
 )
 
 /** A single chapter entry in a novel's chapter list. */

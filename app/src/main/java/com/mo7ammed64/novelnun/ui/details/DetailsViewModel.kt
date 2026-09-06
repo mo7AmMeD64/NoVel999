@@ -20,6 +20,9 @@ data class DetailsUiState(
     val query: String = "",
     val continueChapter: Chapter? = null,
     val chapterInputError: String? = null,
+    /** Cursor for the next chapter page, or null once every chapter has been loaded. */
+    val nextChaptersCursor: String? = null,
+    val loadingMoreChapters: Boolean = false,
 )
 
 class DetailsViewModel(application: Application) : AndroidViewModel(application) {
@@ -40,11 +43,16 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
      * Loads the novel details once per URL. Coming back from the reader re-enters the screen with
      * the same ViewModel, so we keep the already-loaded data (and scroll state) instead of
      * re-fetching and flashing the loading spinner. Pass [force] to explicitly refresh.
+     *
+     * Only the first page of chapters (up to 300 - the large majority of novels in full) loads up
+     * front; longer novels page the rest in via [loadMoreChapters] or on demand when a jump/continue
+     * target isn't on the first page yet (see [ensureChapterAvailable]), so opening a novel never
+     * waits on its entire chapter list.
      */
     fun load(seriesUrl: String, force: Boolean = false) {
         if (!force && loadedUrl == seriesUrl && _state.value.details != null) {
             // Refresh the "continue" chapter — the user may have just read a new chapter.
-            refreshContinueChapter()
+            resolveContinueChapter()
             return
         }
         loadedUrl = seriesUrl
@@ -52,27 +60,35 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
             _state.value = _state.value.copy(loading = true, error = null)
             repo.getDetails(seriesUrl)
                 .onSuccess { details ->
-                    val history = repo.findHistory(details.novel.slug)
-                    val continueChapter = details.chapters.firstOrNull { it.url == history?.lastChapterUrl }
-                        ?: details.chapters.firstOrNull()
                     _state.value = _state.value.copy(
                         loading = false,
                         details = details,
-                        continueChapter = continueChapter,
+                        nextChaptersCursor = details.nextChaptersCursor,
                         chapterInputError = null,
                     )
+                    resolveContinueChapter()
                 }
                 .onFailure { e -> _state.value = _state.value.copy(loading = false, error = e.message) }
         }
     }
 
-    private fun refreshContinueChapter() {
+    /**
+     * Resolves the "Continue" target from reading history. If the last-read chapter isn't on the
+     * already-loaded page(s) yet, this pages in more chapters in the background (via the same
+     * mechanism as a chapter-number jump) until it's found, rather than ever falling back to
+     * chapter 1 just because the rest of the list hadn't loaded yet.
+     */
+    private fun resolveContinueChapter() {
         val details = _state.value.details ?: return
         viewModelScope.launch {
             val history = repo.findHistory(details.novel.slug)
-            val continueChapter = details.chapters.firstOrNull { it.url == history?.lastChapterUrl }
-                ?: details.chapters.firstOrNull()
-            _state.value = _state.value.copy(continueChapter = continueChapter)
+            val targetUrl = history?.lastChapterUrl
+            val chapter = if (targetUrl != null) {
+                ensureChapterAvailable { it.url == targetUrl } ?: _state.value.details?.chapters?.firstOrNull()
+            } else {
+                _state.value.details?.chapters?.firstOrNull()
+            }
+            _state.value = _state.value.copy(continueChapter = chapter)
         }
     }
 
@@ -88,6 +104,8 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Filters by a title when text is entered. Numeric input is treated as a chapter number so the
      * list immediately narrows to the requested chapter instead of merely looking for the string.
+     * Text search only covers chapters already loaded - [chapterForNumber] is the one that pages
+     * in more chapters on demand for a numeric jump.
      */
     fun filteredChapters(reverseOrder: Boolean = false): List<Chapter> {
         val chapters = orderedChapters(reverseOrder)
@@ -97,9 +115,6 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
 
         val requestedNumber = chapterNumber(query)
         return if (requestedNumber != null) {
-            // Match the real chapter number first (parsed from the title when the source provides
-            // it); only fall back to the list position, and always on the chronological list so
-            // the displayed/reversed order can not shift the result.
             val numberMatches = chapters.filter { chapter ->
                 chapter.number == requestedNumber || chapterNumber(chapter.title) == requestedNumber
             }
@@ -113,21 +128,70 @@ class DetailsViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Finds the chapter requested in the chapter-number bar. */
-    fun chapterForNumber(reverseOrder: Boolean = false): Chapter? {
+    /**
+     * Finds the chapter requested in the chapter-number bar. If it isn't on an already-loaded page,
+     * this pages in more chapters (via [ensureChapterAvailable]) until it's found or the novel runs
+     * out of chapters, so jumping to, say, chapter 2000 of a long novel still works correctly - it
+     * just takes a beat longer than a chapter already on the first page.
+     */
+    suspend fun chapterForNumber(reverseOrder: Boolean = false): Chapter? {
         val requestedNumber = chapterNumber(_state.value.query) ?: return null
-        val chronological = orderedChapters(reverseOrder = false)
 
-        // Prefer the actual number in the title; the list position is only a fallback for sources
-        // that do not include a number in their chapter label. The fallback always indexes the
-        // chronological (oldest-first) list, never the reversed display order.
-        return chronological.firstOrNull { it.number == requestedNumber }
-            ?: chronological.firstOrNull { chapterNumber(it.title) == requestedNumber }
-            ?: chronological.getOrNull(requestedNumber - 1)
+        fun matches(chapter: Chapter) =
+            chapter.number == requestedNumber || chapterNumber(chapter.title) == requestedNumber
+
+        orderedChapters(reverseOrder = false).firstOrNull(::matches)?.let { return it }
+        ensureChapterAvailable(::matches)?.let { return it }
+        return orderedChapters(reverseOrder = false).getOrNull(requestedNumber - 1)
     }
 
     fun markChapterNotFound() {
         _state.value = _state.value.copy(chapterInputError = "لم يتم العثور على هذا الفصل")
+    }
+
+    /** Loads one more page of chapters for the "تحميل المزيد" button. */
+    fun loadMoreChapters() {
+        val seriesUrl = loadedUrl ?: return
+        val cursor = _state.value.nextChaptersCursor ?: return
+        if (_state.value.loadingMoreChapters) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(loadingMoreChapters = true)
+            val startIndex = _state.value.details?.chapters?.size ?: 0
+            repo.getMoreChapters(seriesUrl, cursor, startIndex)
+                .onSuccess { page -> appendChapterPage(page.chapters, page.nextCursor) }
+                .also { _state.value = _state.value.copy(loadingMoreChapters = false) }
+        }
+    }
+
+    /**
+     * Searches already-loaded chapters for [predicate]; if not found and more pages remain, fetches
+     * them one at a time (appending each to the visible list as it arrives) until a match turns up
+     * or the novel's chapters are exhausted. Bounded so a predicate that never matches can't loop
+     * forever.
+     */
+    private suspend fun ensureChapterAvailable(predicate: (Chapter) -> Boolean): Chapter? {
+        _state.value.details?.chapters?.firstOrNull(predicate)?.let { return it }
+
+        val seriesUrl = loadedUrl ?: return null
+        var cursor = _state.value.nextChaptersCursor
+        var guard = 0
+        while (cursor != null && guard < 30) {
+            guard++
+            val startIndex = _state.value.details?.chapters?.size ?: 0
+            val page = repo.getMoreChapters(seriesUrl, cursor, startIndex).getOrNull() ?: break
+            appendChapterPage(page.chapters, page.nextCursor)
+            page.chapters.firstOrNull(predicate)?.let { return it }
+            cursor = page.nextCursor
+        }
+        return null
+    }
+
+    private fun appendChapterPage(newChapters: List<Chapter>, nextCursor: String?) {
+        val current = _state.value.details ?: return
+        _state.value = _state.value.copy(
+            details = current.copy(chapters = current.chapters + newChapters),
+            nextChaptersCursor = nextCursor,
+        )
     }
 
     private fun orderedChapters(reverseOrder: Boolean): List<Chapter> {

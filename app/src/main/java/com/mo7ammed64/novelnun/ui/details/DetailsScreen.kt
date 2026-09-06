@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
@@ -46,6 +47,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mo7ammed64.novelnun.data.model.Chapter
 import com.mo7ammed64.novelnun.ui.common.NovelCover
 import com.mo7ammed64.novelnun.ui.settings.AppSettings
+import kotlinx.coroutines.launch
 
 @Composable
 fun DetailsScreen(
@@ -74,14 +76,15 @@ fun DetailsScreen(
 
             else -> {
                 val details = state.details!!
+                val scope = rememberCoroutineScope()
 
                 fun openRequestedChapter() {
-                    viewModel.chapterForNumber(settings.reverseChapterOrder)?.let { chapter ->
-                        // Clear the search before leaving so the full chapter list is waiting
-                        // when the user comes back from the reader.
-                        viewModel.clearQuery()
-                        onOpenChapter(details.novel.url, chapter.url)
-                    } ?: viewModel.markChapterNotFound()
+                    scope.launch {
+                        viewModel.chapterForNumber(settings.reverseChapterOrder)?.let { chapter ->
+                            viewModel.clearQuery()
+                            onOpenChapter(details.novel.url, chapter.url)
+                        } ?: viewModel.markChapterNotFound()
+                    }
                 }
 
                 LazyColumn(
@@ -261,6 +264,23 @@ fun DetailsScreen(
                                 }
                                 IconButton(onClick = { onOpenChapter(details.novel.url, chapter.url) }) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = "اقرأ")
+                                }
+                            }
+                        }
+
+                        if (state.nextChaptersCursor != null && state.query.isBlank()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (state.loadingMoreChapters) {
+                                        CircularProgressIndicator()
+                                    } else {
+                                        Button(onClick = viewModel::loadMoreChapters) {
+                                            Text("تحميل المزيد من الفصول")
+                                        }
+                                    }
                                 }
                             }
                         }
