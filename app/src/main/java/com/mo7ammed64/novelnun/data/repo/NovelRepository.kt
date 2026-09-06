@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.Flow
 /** Single entry point the UI layer talks to: remote scraping + local persistence. */
 class NovelRepository private constructor(context: Context) {
 
-    private val source = KolNovelSource()
+    private val source = KolNovelSource(context)
     private val db = AppDatabase.get(context)
 
     // Remote --------------------------------------------------------------

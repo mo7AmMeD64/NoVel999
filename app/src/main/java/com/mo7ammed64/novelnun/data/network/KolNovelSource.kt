@@ -1,15 +1,20 @@
 package com.mo7ammed64.novelnun.data.network
 
+import android.content.Context
 import com.mo7ammed64.novelnun.data.model.Chapter
 import com.mo7ammed64.novelnun.data.model.ChapterNumbers
 import com.mo7ammed64.novelnun.data.model.Novel
 import com.mo7ammed64.novelnun.data.model.NovelDetails
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
@@ -26,13 +31,14 @@ import java.util.concurrent.TimeUnit
  *   client-side (digit-normalized, so "142" matches "١٤٢") instead of trusting a guessed
  *   `search=`/`s=` param that the server might silently ignore.
  */
-class KolNovelSource {
+class KolNovelSource(context: Context) {
 
     private val base = "https://kolnovel.com/wp-json/app/v2"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .cache(Cache(File(context.cacheDir, "kolnovel_http_cache"), 15L * 1024 * 1024))
         .build()
 
     private suspend fun getJson(url: String): JSONObject = withContext(Dispatchers.IO) {
@@ -74,7 +80,7 @@ class KolNovelSource {
 
     /** Popular / trending novels, ranked client-side by the score the API returns per item. */
     suspend fun fetchPopular(page: Int = 1): List<Novel> {
-        val json = getJson("$base/discover?limit=40&sort=latest&genre_match=all")
+        val json = getJson("$base/discover?limit=24&sort=latest&genre_match=all")
         val data = json.optJSONArray("data") ?: JSONArray()
         return (0 until data.length())
             .map { data.getJSONObject(it) }
@@ -93,21 +99,22 @@ class KolNovelSource {
         return (0 until data.length()).map { novelFromJson(data.getJSONObject(it)) }
     }
 
-    suspend fun fetchDetails(seriesUrl: String): NovelDetails? {
-        val id = idFromUrl(seriesUrl) ?: return null
-        val titleJson = getJson("$base/titles/$id").optJSONObject("data") ?: return null
+    suspend fun fetchDetails(seriesUrl: String): NovelDetails? = coroutineScope {
+        val id = idFromUrl(seriesUrl) ?: return@coroutineScope null
+
+        // Metadata and the first page of chapters don't depend on each other - fetch both at once
+        // instead of waiting on the first before starting the second.
+        val titleDeferred = async { getJson("$base/titles/$id").optJSONObject("data") }
+        val firstPageDeferred = async { getJson("$base/titles/$id/reading-list?limit=300") }
+
+        val titleJson = titleDeferred.await() ?: return@coroutineScope null
         val novel = novelFromJson(titleJson)
 
         // Chapters come back chronological (oldest first) already - no ordering heuristics needed.
         val chapters = mutableListOf<Chapter>()
-        var cursor: String? = null
+        var listJson = firstPageDeferred.await()
         var page = 0
-        do {
-            val url = buildString {
-                append("$base/titles/$id/reading-list?limit=300")
-                if (cursor != null) append("&cursor=").append(cursor)
-            }
-            val listJson = getJson(url)
+        while (true) {
             val data = listJson.optJSONArray("data") ?: JSONArray()
             for (i in 0 until data.length()) {
                 val entry = data.getJSONObject(i)
@@ -127,9 +134,11 @@ class KolNovelSource {
                 )
             }
             val meta = listJson.optJSONObject("meta")
-            cursor = meta?.optString("next_cursor")?.takeIf { it.isNotBlank() && it != "null" }
+            val cursor = meta?.optString("next_cursor")?.takeIf { it.isNotBlank() && it != "null" }
             page++
-        } while (cursor != null && page < 15)
+            if (cursor == null || page >= 15) break
+            listJson = getJson("$base/titles/$id/reading-list?limit=300&cursor=$cursor")
+        }
 
         val description = titleJson.optString("description")
             .replace(Regex("<[^>]*>"), " ")
@@ -137,7 +146,7 @@ class KolNovelSource {
             .replace(Regex("\\s+"), " ")
             .trim()
 
-        return NovelDetails(
+        NovelDetails(
             novel = novel,
             synopsis = description,
             status = titleJson.optString("status").ifBlank { null },
