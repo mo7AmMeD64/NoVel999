@@ -2,9 +2,16 @@ package com.mo7ammed64.novelnun.ui.reader
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,6 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextAlign
@@ -92,67 +100,82 @@ fun ReaderScreen(
 
     LaunchedEffect(novelUrl, chapterUrl) { viewModel.load(novelUrl, chapterUrl) }
 
-    Scaffold(
-        containerColor = background.background,
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = background.background,
-                    titleContentColor = background.text,
-                    navigationIconContentColor = background.text,
-                    actionIconContentColor = background.text,
-                ),
-                title = {
-                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                        Text(
-                            state.title,
-                            maxLines = 1,
-                            color = background.text,
-                            textAlign = TextAlign.Right,
-                        )
-                    }
+    var topBarVisible by remember { mutableStateOf(true) }
+
+    Scaffold(containerColor = background.background) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { topBarVisible = !topBarVisible })
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
-                },
-                actions = {
-                    IconButton(onClick = { showOptions = true }) {
-                        Icon(Icons.Default.Tune, contentDescription = "Reader options")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        when {
-            state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = background.text)
-            }
-            state.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(state.error ?: "خطأ", color = MaterialTheme.colorScheme.error)
-            }
-            else -> {
-                val paragraphs = remember(state.html) {
-                    Jsoup.parse(state.html).select("p").map { it.text() }.filter { it.isNotBlank() }
+        ) {
+            when {
+                state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = background.text)
                 }
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize().padding(padding),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy((settings.readerFontSize * 0.66f).dp),
-                    ) {
-                        items(paragraphs) { paragraph ->
-                            Text(
-                                text = paragraph,
-                                color = background.text,
-                                fontFamily = settings.readerFontFamily,
-                                fontSize = settings.readerFontSize.sp,
-                                lineHeight = (settings.readerFontSize * settings.readerLineSpacing).sp,
-                                textAlign = textAlign,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                state.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(state.error ?: "خطأ", color = MaterialTheme.colorScheme.error)
+                }
+                else -> {
+                    val paragraphs = remember(state.html) {
+                        Jsoup.parse(state.html).select("p").map { it.text() }.filter { it.isNotBlank() }
+                    }
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy((settings.readerFontSize * 0.66f).dp),
+                        ) {
+                            items(paragraphs) { paragraph ->
+                                Text(
+                                    text = paragraph,
+                                    color = background.text,
+                                    fontFamily = settings.readerFontFamily,
+                                    fontSize = settings.readerFontSize.sp,
+                                    lineHeight = (settings.readerFontSize * settings.readerLineSpacing).sp,
+                                    textAlign = textAlign,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
                 }
+            }
+
+            AnimatedVisibility(
+                visible = topBarVisible,
+                modifier = Modifier.align(Alignment.TopCenter),
+                enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { -it },
+                exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { -it },
+            ) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = background.background,
+                        titleContentColor = background.text,
+                        navigationIconContentColor = background.text,
+                        actionIconContentColor = background.text,
+                    ),
+                    title = {
+                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                            Text(
+                                state.title,
+                                maxLines = 1,
+                                color = background.text,
+                                textAlign = TextAlign.Right,
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    },
+                    actions = {
+                        IconButton(onClick = { showOptions = true }) {
+                            Icon(Icons.Default.Tune, contentDescription = "Reader options")
+                        }
+                    },
+                )
             }
         }
     }
